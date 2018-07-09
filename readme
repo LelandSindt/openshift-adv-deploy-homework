@@ -1,4 +1,4 @@
-This docuemtnation/POC assumes the following.
+This documentation/POC assumes the following.
 
 1. na37.openshift.opentlc.com will be used. 
 2. all of the oc commands for the Prod and Dev projects will be run interactly/by hand and wait for apps to come online before moving to the next. -- default memory/CPU quotas in the *.openshift.opentlc.com environment can cause deployment failures if too many proccesses are kicked off at once. 
