@@ -1,0 +1,190 @@
+This docuemtnation/POC assumes the following.
+
+1. na37.openshift.opentlc.com will be used. 
+2. all of the oc commands for the Prod and Dev projects will be run interactly/by hand and wait for apps to come online before moving to the next. -- default memory/CPU quotas in the *.openshift.opentlc.com environment can cause deployment failures if too many proccesses are kicked off at once. 
+3. only one Jenkins Pipeline is run at a time. -- default memory/CPU quotas in the *.openshift.opentcl.com environemnt will cause build/deployment failures if more than one Pipeline is run at a time.   
+
+## Parks Routes:
+Production: http://parksmap-lms-headwaters-prod.apps.na37.openshift.opentlc.com/
+Development: http://parksmap-lms-headwaters-dev.apps.na37.openshift.opentlc.com/
+
+jenkins, gogs, nexus and sonarqube init.sh scripts and templates can be found in their respective subdirectories under the "CIDD" directory. 
+
+CICD/
+├── gogs
+│   ├── gogs-persistent-template.yml
+│   └── init.sh
+├── jenkins
+│   ├── jenkins-persistent-template.yml 
+│   └── init.sh
+├── nexus
+│   ├── init.sh
+│   └── nexus3-persistent-template.yml
+└── sonarqube
+    ├── init.sh
+    └── sonarqube-postgresql-template.yml
+
+## Jenkins
+url: https://jenkins-lms-headwaters-jenkins.apps.na37.openshift.opentlc.com/
+user: leland.sindt-theheadwatersgroup
+pass: [redacted] 
+--- I assume that you will grant yourslef acces. If not please contact me for the password. 
+
+## Gogs
+url: http://gogs.lms-headwaters-gogs.apps.na37.openshift.opentlc.com/
+user: leland
+pass: none 
+
+## Nexus
+url: http://nexus-lms-headwaters-nexus.apps.na37.openshift.opentlc.com/
+user: admin
+pass: admin123 
+
+## Sonarqube
+url: http://sonarqube-lms-headwaters-sonarqube.apps.na37.openshift.opentlc.com/projects
+user: admin
+pass: admin
+
+mlbparks, nationalparks, parksmap source code and Mongodb Statefulset configs can be found in the "src" directory  
+
+src/
+├── mlbparks
+│   ├── Jenkinsfile
+│   ├── nexus_settings_openshift.xml
+│   ├── nexus_settings.xml
+│   ├── none
+│   ├── pom.xml
+│   ├── README.adoc
+│   └── src
+├── mongo_prod
+│   ├── init.sh
+│   ├── mongo-headlessservice-template.yml
+│   ├── mongo-service-template.yml
+│   └── mongo-statefulset-template.yml
+├── nationalparks
+│   ├── Jenkinsfile
+│   ├── nexus_settings_openshift.xml
+│   ├── nexus_settings.xml
+│   ├── pom.xml
+│   ├── README.adoc
+│   └── src
+└── parksmap
+    ├── Jenkinsfile
+    ├── nexus_settings_openshift.xml
+    ├── nexus_settings.xml
+    ├── pom.xml
+    ├── README.adoc
+    └── src
+
+## Custom Build Image
+# includes skopeo/used to push images to Nexus Repo.
+docker login -u nobody -p $(oc whoami -t) docker-registry-default.apps.na37.openshift.opentlc.com
+docker image push docker-registry-default.apps.na37.openshift.opentlc.com/lms-headwaters-jenkins/jenkins-worker-maven-appdev
+oc label imagestream jenkins-worker-maven-appdev role=jenkins-slave -n lms-headwaters-jenkins
+
+### Development Project
+oc new-project lms-headwaters-dev --display-name "Parks Dev"
+oc policy add-role-to-user edit system:serviceaccount:lms-headwaters-jenkins:jenkins -n lms-headwaters-dev
+oc policy add-role-to-user view --serviceaccount=default -n lms-headwaters-dev
+## mongodb
+oc new-app mongodb-persistent -p MEMORY_LIMIT=256Mi -p MONGODB_USER=parks -p MONGODB_PASSWORD=parkspass MONGODB_DATABASE=parks -n lms-headwaters-dev
+oc create configmap mongodev --from-literal=DB_HOST=mongodb.lms-headwaters-dev.svc.cluster.local --from-literal=DB_PORT=27017 --from-literal=DB_USERNAME=parks --from-literal=DB_PASSWORD=parkspass --from-literal=DB_NAME=parks -n lms-headwaters-dev
+
+## mlbparks
+oc new-build --binary=true --name=mlbparks jboss-eap70-openshift:1.6 -n lms-headwaters-dev  
+oc new-app lms-headwaters-dev/mlbparks:0.0-0 --name=mlbparks --allow-missing-imagestream-tags=true -n lms-headwaters-dev
+oc set resources dc/mlbparks --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-dev
+oc patch dc/mlbparks --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-dev
+oc set probe dc/mlbparks --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-dev
+oc set triggers dc/mlbparks --remove-all -n lms-headwaters-dev
+oc expose dc/mlbparks --port 8080 -n lms-headwaters-dev
+oc label svc/mlbparks type=parksmap-backend -n lms-headwaters-dev
+oc env --from=configmap/mongodev dc/mlbparks -n lms-headwaters-dev
+oc rsh mlbparks-<##>-<??????> "curl" "-i" "mlbparks.lms-headwaters-prod.svc.cluster.local:8080/ws/data/load/"
+
+## nationalparks
+oc new-build --binary=true --name=nationalparks redhat-openjdk18-openshift:1.2 -n lms-headwaters-dev  
+oc new-app lms-headwaters-dev/nationalparks:0.0-0 --name=nationalparks --allow-missing-imagestream-tags=true -n lms-headwaters-dev
+oc set resources dc/nationalparks --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-dev
+oc patch dc/nationalparks --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-dev
+oc set probe dc/nationalparks --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-dev
+oc set triggers dc/nationalparks --remove-all -n lms-headwaters-dev
+oc expose dc/nationalparks --port 8080 -n lms-headwaters-dev
+oc label svc/nationalparks type=parksmap-backend -n lms-headwaters-dev
+oc env --from=configmap/mongodev dc/nationalparks -n lms-headwaters-dev
+oc rsh mlbparks-<##>-<??????> "curl" "-i" "mlbparks.lms-headwaters-prod.svc.cluster.local:8080/ws/data/load/"
+
+
+## Parks Map 
+oc new-build --binary=true --name=parksmap redhat-openjdk18-openshift:1.2 -n lms-headwaters-dev  
+oc new-app lms-headwaters-dev/parksmap:0.0-0 --name=parksmap --allow-missing-imagestream-tags=true -n lms-headwaters-dev
+oc set resources dc/parksmap --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-dev
+oc patch dc/parksmap --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-dev
+oc set probe dc/parksmap --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-dev
+oc set triggers dc/parksmap --remove-all -n lms-headwaters-dev
+oc expose dc/parksmap --port 8080 -n lms-headwaters-dev
+oc expose svc/parksmap --path=/ -n lms-headwaters-dev
+
+### Production Project
+oc new-project lms-headwaters-prod --display-name "Parks Prod"
+oc policy add-role-to-group system:image-puller system:serviceaccounts:lms-headwaters-prod -n lms-headwaters-dev 
+oc policy add-role-to-user edit system:serviceaccount:lms-headwaters-jenkins:jenkins -n lms-headwaters-prod 
+oc policy add-role-to-user view --serviceaccount=default -n lms-headwaters-prod
+
+##  Mongo Stateful Set
+cd ./src/mongo_prod/; init.sh
+oc create configmap mongoprod --from-literal=DB_HOST=mongodb.lms-headwaters-prod.svc.cluster.local --from-literal=DB_PORT=27017 --from-literal=DB_USERNAME=parksuser --from-literal=DB_PASSWORD=parkspass --from-literal=DB_NAME=parks --from-literal=DB_REPLICASET=rs0 -n lms-headwaters-prod
+
+
+## Major League Baseball Parks 
+oc new-app lms-headwaters-dev/mlbparks:none --name=mlbparks-blue --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc new-app lms-headwaters-dev/mlbparks:none --name=mlbparks-green --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc set triggers dc/mlbparks-blue --remove-all -n lms-headwaters-prod
+oc set triggers dc/mlbparks-green --remove-all -n lms-headwaters-prod
+oc set probe dc/mlbparks-blue --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set probe dc/mlbparks-green --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set resources dc/mlbparks-blue --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc set resources dc/mlbparks-green --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc patch dc/mlbparks-blue --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc patch dc/mlbparks-green --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc env --from=configmap/mongoprod dc/mlbparks-blue -n lms-headwaters-prod
+oc env --from=configmap/mongoprod dc/mlbparks-green -n lms-headwaters-prod
+oc expose dc/mlbparks-blue --port 8080 -n lms-headwaters-prod
+oc expose dc/mlbparks-green --port 8080 -n lms-headwaters-prod
+oc label svc/mlbparks-blue type=parksmap-backend -n lms-headwaters-prod
+oc rsh mlbparks-blue-<##>-<??????> "curl" "-i" "mlbparks-blue.lms-headwaters-prod.svc.cluster.local:8080/ws/data/load/"
+
+## National Parks
+oc new-app lms-headwaters-dev/nationalparks:none --name=nationalparks-blue --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc new-app lms-headwaters-dev/nationalparks:none --name=nationalparks-green --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc set triggers dc/nationalparks-blue --remove-all -n lms-headwaters-prod
+oc set triggers dc/nationalparks-green --remove-all -n lms-headwaters-prod
+oc set probe dc/nationalparks-blue --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set probe dc/nationalparks-green --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set resources dc/nationalparks-blue --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc set resources dc/nationalparks-green --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc patch dc/nationalparks-blue --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc patch dc/nationalparks-green --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc env --from=configmap/mongoprod dc/nationalparks-blue -n lms-headwaters-prod
+oc env --from=configmap/mongoprod dc/nationalparks-green -n lms-headwaters-prod
+oc expose dc/nationalparks-blue --port 8080 -n lms-headwaters-prod
+oc expose dc/nationalparks-green --port 8080 -n lms-headwaters-prod
+oc label svc/nationalparks-blue type=parksmap-backend -n lms-headwaters-prod
+oc rsh nationalparks-blue-<##>-<??????> "curl" "-i" "nationalparks-blue.lms-headwaters-prod.svc.cluster.local:8080/ws/data/load/"
+
+## Parks Map
+oc new-app lms-headwaters-dev/parksmap:0.0-0 --name=parksmap-blue --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc new-app lms-headwaters-dev/parksmap:0.0-0 --name=parksmap-green --allow-missing-imagestream-tags=true -n lms-headwaters-prod
+oc rollout cancel dc/parksmap-blue -n lms-headwaters-prod
+oc rollout cancel dc/parksmap-green -n lms-headwaters-prod
+oc set triggers dc/parksmap-blue --remove-all -n lms-headwaters-prod
+oc set triggers dc/parksmap-green --remove-all -n lms-headwaters-prod
+oc set probe dc/parksmap-blue --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set probe dc/parksmap-green --liveness --readiness --get-url=http://:8080/ws/healthz/ --initial-delay-seconds=30 -n lms-headwaters-prod
+oc set resources dc/parksmap-blue --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc set resources dc/parksmap-green --requests="memory=128Mi" --limits="memory=512Mi" -n lms-headwaters-prod
+oc patch dc/parksmap-blue --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc patch dc/parksmap-green --patch '{"spec":{"strategy":{"type":"Recreate"}}}' -n lms-headwaters-prod
+oc expose dc/parksmap-blue --port 8080 -n lms-headwaters-prod
+oc expose dc/parksmap-green --port 8080 -n lms-headwaters-prod
+oc expose svc/parksmap-blue --name parksmap --path=/ -n lms-headwaters-prod
