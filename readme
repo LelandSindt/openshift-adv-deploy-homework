@@ -28,7 +28,7 @@ CICD/
 url: https://jenkins-lms-headwaters-jenkins.apps.na37.openshift.opentlc.com/
 user: leland.sindt-theheadwatersgroup
 pass: [redacted] 
---- I assume that you will grant yourslef acces. If not please contact me for the password. 
+--- I assume that you will grant yourslef access. If not please contact me for the password.
 
 ## Gogs
 url: http://gogs.lms-headwaters-gogs.apps.na37.openshift.opentlc.com/
@@ -45,36 +45,16 @@ url: http://sonarqube-lms-headwaters-sonarqube.apps.na37.openshift.opentlc.com/p
 user: admin
 pass: admin
 
-mlbparks, nationalparks, parksmap source code and Mongodb Statefulset configs can be found in the "src" directory  
+mlbparks, nationalparks, parksmap source code can be found in the gogs implementation.
+
+Mongodb Statefulset configs can be found in the "src" directory
 
 src/
-├── mlbparks
-│   ├── Jenkinsfile
-│   ├── nexus_settings_openshift.xml
-│   ├── nexus_settings.xml
-│   ├── none
-│   ├── pom.xml
-│   ├── README.adoc
-│   └── src
 ├── mongo_prod
-│   ├── init.sh
-│   ├── mongo-headlessservice-template.yml
-│   ├── mongo-service-template.yml
-│   └── mongo-statefulset-template.yml
-├── nationalparks
-│   ├── Jenkinsfile
-│   ├── nexus_settings_openshift.xml
-│   ├── nexus_settings.xml
-│   ├── pom.xml
-│   ├── README.adoc
-│   └── src
-└── parksmap
-    ├── Jenkinsfile
-    ├── nexus_settings_openshift.xml
-    ├── nexus_settings.xml
-    ├── pom.xml
-    ├── README.adoc
-    └── src
+    ├── init.sh
+    ├── mongo-headlessservice-template.yml
+    ├── mongo-service-template.yml
+    └── mongo-statefulset-template.yml
 
 ## Custom Build Image
 # includes skopeo/used to push images to Nexus Repo.
